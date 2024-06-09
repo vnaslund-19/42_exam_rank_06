@@ -33,7 +33,7 @@ void    send_to_all(int except)
 {
     for (int fd = 0; fd <= maxfd; fd++)
     {
-        if  (FD_ISSET(fd, &write_set) && fd != except)
+        if (FD_ISSET(fd, &write_set) && fd != except) // Checks if the fd is part of the write_set
             if (send(fd, send_buffer, strlen(send_buffer), 0) == -1)
                 err(NULL);
     }
@@ -42,12 +42,13 @@ void    send_to_all(int except)
 // Main function
 int     main(int ac, char **av)
 {
-    if (ac != 2) // Check if the correct number of arguments is passed
+    if (ac != 2) // Only port number should be passed as arg
         err("Wrong number of arguments");
 
-    struct sockaddr_in  serveraddr;
-    socklen_t           len;
-    int serverfd = socket(AF_INET, SOCK_STREAM, 0); // Create a socket
+    struct      sockaddr_in  serveraddr; // struct holding address information of the socket
+    socklen_t   len;
+
+    int serverfd = socket(AF_INET, SOCK_STREAM, 0); // Create a socket, Address family: IPv4, Type of socket: TCP
     if (serverfd == -1) 
         err(NULL);
     maxfd = serverfd;
@@ -58,11 +59,12 @@ int     main(int ac, char **av)
     bzero(&serveraddr, sizeof(serveraddr)); // Clear the server address structure
 
     serveraddr.sin_family = AF_INET; // Set the address family to AF_INET
-    serveraddr.sin_addr.s_addr = htonl(INADDR_ANY); // Set the address to any available interface
-    serveraddr.sin_port = htons(atoi(av[1])); // Set the port number from the argument
+    serveraddr.sin_addr.s_addr = htonl(INADDR_ANY); // Set the address to any available interface (host to network long)
+    serveraddr.sin_port = htons(atoi(av[1])); // Set the port number from the argument (host to network short)
 
+    // Bind and listen on the socket
     if (bind(serverfd, (const struct sockaddr *)&serveraddr, sizeof(serveraddr)) == -1 || listen(serverfd, 100) == -1)
-        err(NULL); // Bind and listen on the socket
+        err(NULL);                                                              // 100 is maximum lenght for queue of pending connections
 
     while (1) // Main loop to handle client connections and messages
     {
