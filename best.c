@@ -19,10 +19,13 @@ fd_set conn_set; // Set of all connected sockets
 fd_set read_set; // Set of sockets ready to be read
 fd_set write_set; // Set of sockets ready to be written to
 
-void error_exit(const char *message) 
+void    err(char  *msg)
 {
-    if (message)
-        write(2, message, strlen(message));
+    if (msg)
+        write(2, msg, strlen(msg));
+    else
+        write(2, "Fatal error", 11);
+    write(2, "\n", 1);
     exit(1);
 }
 
@@ -55,35 +58,6 @@ void broadcast_message(int sender_fd, const char *message)
     }
 }
 
-void init_server(const char *port)
-{
-    // Create socket
-    server_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (server_fd == -1)
-        error_exit("Fatal error\n");
-
-    // Set up server address
-    server_address.sin_family = AF_INET;
-    server_address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    server_address.sin_port = htons(atoi(port));
-
-    // Bind socket to the address
-    if (bind(server_fd, (const struct sockaddr*)&server_address, sizeof(server_address)) == -1)
-        error_exit("Fatal error\n");
-
-    // Listen for connections
-    if (listen(server_fd, 100) == -1)
-        error_exit("Fatal error\n");
-
-    clients_count = 0;
-    max_fd = server_fd;
-    FD_ZERO(&conn_set);
-    FD_SET(server_fd, &conn_set); // Add the server socket to the set
-
-    for (int i = 0; i < 1024; ++i)
-        clients[i].buff = NULL; // Initialize client buffers to NULL
-}
-
 void handle_new_client()
 {
     int client_fd = accept(server_fd, NULL, NULL); // Accept new client connection
@@ -108,7 +82,7 @@ void handle_client_disconnection(int client_fd)
     sprintf(message, "server: client %d just left\n", clients[client_fd].id);
     broadcast_message(client_fd, message); // Notify other clients about the disconnection
 
-    FD_CLR(client_fd, &conn_set);   // Remove the client from the set
+    FD_CLR(client_fd, &conn_set);   // Remove the client from the sets
     FD_CLR(client_fd, &write_set);
     close(client_fd);               // Close the client socket
     free(clients[client_fd].buff); // Free the client's buffer
@@ -123,7 +97,7 @@ void save_remaining_message(int client_fd, int bytes, int start)
     {
         temp = str_join(temp, &clients[client_fd].buff[start]);
         if (!temp)
-            error_exit("Fatal error\n");
+            err(NULL);
     }
     free(clients[client_fd].buff);
     clients[client_fd].buff = temp; // Save any remaining part of the message
@@ -139,7 +113,7 @@ void process_client_message(int client_fd, int bytes, char* buffer)
             buffer[i] = '\0'; // Replace newline with null terminator
             char *line = malloc(i - start + 32); // Allocate memory for the message line
             if (!line)
-                error_exit("Fatal error\n");
+                err(NULL);
             sprintf(line, "client %d: %s\n", clients[client_fd].id, &buffer[start]);
             broadcast_message(client_fd, line); // Send the message line to other clients
             free(line);
@@ -163,17 +137,46 @@ void handle_client_data(int client_fd)
     buffer[bytes] = '\0'; // Null-terminate the received data
     clients[client_fd].buff = str_join(clients[client_fd].buff, buffer); // Append the new data to the client's buffer
     if (!clients[client_fd].buff)
-        error_exit("Fatal error\n");
+        err(NULL);
 
     process_client_message(client_fd, strlen(clients[client_fd].buff), clients[client_fd].buff); // Process the received message
+}
+
+void init_server(int port)
+{
+    // Create socket
+    server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (server_fd == -1)
+        err(NULL);
+
+    // Set up server address
+    server_address.sin_family = AF_INET;
+    server_address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    server_address.sin_port = htons(port);
+
+    // Bind socket to the address
+    if (bind(server_fd, (const struct sockaddr*)&server_address, sizeof(server_address)) == -1)
+        err(NULL);
+
+    // Listen for connections
+    if (listen(server_fd, 100) == -1) // 100 is maximum lenght for queue of pending connections
+        err(NULL);
+
+    clients_count = 0;
+    max_fd = server_fd;
+    FD_ZERO(&conn_set); // Initialize
+    FD_SET(server_fd, &conn_set); // Add the server socket to the set
+
+    for (int i = 0; i < 1024; ++i)
+        clients[i].buff = NULL; // Initialize client buffers to NULL
 }
 
 int main(int argc, char **argv) 
 {
     if (argc != 2)
-        error_exit("Wrong number of arguments\n");
+        err("Wrong number of arguments\n");
 
-    init_server(argv[1]);
+    init_server(atoi(argv[1]));
 
     while (1) 
     {

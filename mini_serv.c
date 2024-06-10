@@ -21,10 +21,10 @@ char        send_buffer[120000], recv_buffer[120000]; // Buffers for sending and
 void    err(char  *msg)
 {
     if (msg)
-        write_setite(2, msg, strlen(msg));
+        write(2, msg, strlen(msg));
     else
-        write_setite(2, "Fatal error", 11);
-    write_setite(2, "\n", 1);
+        write(2, "Fatal error", 11);
+    write(2, "\n", 1);
     exit(1);
 }
 
