@@ -13,7 +13,7 @@ typedef struct s_client
 }   t_client;
 
 t_client    clients[1024];        // Array to store all connected clients
-fd_set      read_set, write_set, current; // Sets of file descriptors for select
+fd_set      read_set, write_setite_set, current; // Sets of file descriptors for select
 int         maxfd = 0, gid = 0;   // maxfd: highest file descriptor number, gid: global client ID counter
 char        send_buffer[120000], recv_buffer[120000]; // Buffers for sending and receiving data
 
@@ -21,10 +21,10 @@ char        send_buffer[120000], recv_buffer[120000]; // Buffers for sending and
 void    err(char  *msg)
 {
     if (msg)
-        write(2, msg, strlen(msg));
+        write_setite(2, msg, strlen(msg));
     else
-        write(2, "Fatal error", 11);
-    write(2, "\n", 1);
+        write_setite(2, "Fatal error", 11);
+    write_setite(2, "\n", 1);
     exit(1);
 }
 
@@ -33,7 +33,7 @@ void    send_to_all(int except)
 {
     for (int fd = 0; fd <= maxfd; fd++)
     {
-        if (FD_ISSET(fd, &write_set) && fd != except) // Checks if the fd is part of the write_set
+        if (FD_ISSET(fd, &write_setite_set) && fd != except) // Checks if the fd is part of the write_setite_set
             if (send(fd, send_buffer, strlen(send_buffer), 0) == -1)
                 err(NULL);
     }
@@ -43,7 +43,7 @@ void    send_to_all(int except)
 int     main(int ac, char **av)
 {
     if (ac != 2) // Only port number should be passed as arg
-        err("Wrong number of arguments");
+        err("write_setong number of arguments");
 
     struct      sockaddr_in  serveraddr; // struct holding address information of the socket
     socklen_t   len;
@@ -68,8 +68,8 @@ int     main(int ac, char **av)
 
     while (1) // Main loop to handle client connections and messages
     {
-        read_set = write_set = current; // Copy the current set to read_set and write_set
-        if (select(maxfd + 1, &read_set, &write_set, 0, 0) == -1) // Wait for activity on the sockets
+        read_set = write_setite_set = current; // Copy the current set to read_set and write_setite_set
+        if (select(maxfd + 1, &read_set, &write_setite_set, 0, 0) == -1) // Wait for activity on the sockets
             continue;
 
         for (int fd = 0; fd <= maxfd; fd++) // Iterate through file descriptors
