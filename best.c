@@ -1,8 +1,9 @@
 #include <unistd.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
-#include <arpa/inet.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
 
 typedef struct s_client 
 {
@@ -10,11 +11,11 @@ typedef struct s_client
     char* buff;
 } t_client;
 
-int server_fd;                      // File descriptor for the server socket
-struct sockaddr_in server_address; // Struct for server address information
-int clients_count;                 // Counter for clients
-t_client clients[1024];            // Array to store client information
-int max_fd;                        // Maximum file descriptor number
+int server_fd;                    // File descriptor for the server socket
+struct sockaddr_in servaddr;    // Struct for server address information
+int clients_count = 0;            // Counter for clients
+t_client clients[1024];           // Array to store client information
+int max_fd;                       // Maximum file descriptor number
 fd_set conn_set; // Set of all connected sockets
 fd_set read_set; // Set of sockets ready to be read
 fd_set write_set; // Set of sockets ready to be written to
@@ -24,8 +25,7 @@ void    err(char  *msg)
     if (msg)
         write(2, msg, strlen(msg));
     else
-        write(2, "Fatal error", 11);
-    write(2, "\n", 1);
+        write(2, "Fatal error\n", 12);
     exit(1);
 }
 
@@ -150,19 +150,18 @@ void init_server(int port)
         err(NULL);
 
     // Set up server address
-    server_address.sin_family = AF_INET;
-    server_address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    server_address.sin_port = htons(port);
+    servaddr.sin_family = AF_INET;
+    servaddr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    servaddr.sin_port = htons(port);
 
     // Bind socket to the address
-    if (bind(server_fd, (const struct sockaddr*)&server_address, sizeof(server_address)) == -1)
+    if (bind(server_fd, (const struct sockaddr*)&servaddr, sizeof(servaddr)) != 0)
         err(NULL);
 
     // Listen for connections
-    if (listen(server_fd, 100) == -1) // 100 is maximum lenght for queue of pending connections
+    if (listen(server_fd, 100) != 0) // 100 is maximum lenght for queue of pending connections
         err(NULL);
 
-    clients_count = 0;
     max_fd = server_fd;
     FD_ZERO(&conn_set); // Initialize
     FD_SET(server_fd, &conn_set); // Add the server socket to the set

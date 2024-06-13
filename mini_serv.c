@@ -68,7 +68,7 @@ int     main(int ac, char **av)
 
     while (1) // Main loop to handle client connections and messages
     {
-        read_set = write_setite_set = current; // Copy the current set to read_set and write_setite_set
+        read_set = write_setite_set = current; // Copy the current set to read_set and write_set
         if (select(maxfd + 1, &read_set, &write_setite_set, 0, 0) == -1) // Wait for activity on the sockets
             continue;
 
