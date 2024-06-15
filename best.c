@@ -66,14 +66,13 @@ void handle_new_client()
 
     // Assign an ID to the new client
     clients[client_fd].id = clients_count++;
-    clients[client_fd].buff = NULL;
     if (client_fd > max_fd)
         max_fd = client_fd;
 
     FD_SET(client_fd, &conn_set); // Add the new client socket to the set
-    char message[128];
-    sprintf(message, "server: client %d just arrived\n", clients[client_fd].id);
-    broadcast_message(client_fd, message); // Notify other clients about the new client
+    char msg[128];
+    sprintf(msg, "server: client %d just arrived\n", clients[client_fd].id);
+    broadcast_message(client_fd, msg); // Notify other clients about the new client
 }
 
 void handle_client_disconnection(int client_fd)
