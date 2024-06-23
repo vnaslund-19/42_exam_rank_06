@@ -1,125 +1,198 @@
+#include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 
-// Structure to store client information
-typedef struct s_client
+typedef struct s_client 
 {
-    int     id;         // Client ID
-    char    msg[100000]; // Buffer to store client messages
-}   t_client;
+    int id;
+    char* buff;
+} t_client;
 
-t_client    clients[1024];        // Array to store all connected clients
-fd_set      read_set, write_setite_set, current; // Sets of file descriptors for select
-int         maxfd = 0, gid = 0;   // maxfd: highest file descriptor number, gid: global client ID counter
-char        send_buffer[120000], recv_buffer[120000]; // Buffers for sending and receiving data
+int server_fd;                    // File descriptor for the server socket
+struct sockaddr_in servaddr;    // Struct for server address information
+int clients_count = 0;            // Counter for clients
+t_client clients[1024];           // Array to store client information
+int max_fd;                       // Maximum file descriptor number
+fd_set conn_set; // Set of all connected sockets
+fd_set read_set; // Set of sockets ready to be read
+fd_set write_set; // Set of sockets ready to be written to
 
-// Function to handle errors by printing a message and exiting the program
 void    err(char  *msg)
 {
     if (msg)
         write(2, msg, strlen(msg));
     else
-        write(2, "Fatal error", 11);
-    write(2, "\n", 1);
+        write(2, "Fatal error\n", 12);
     exit(1);
 }
 
-// Function to send messages to all clients except the one specified by 'except'
-void    send_to_all(int except)
+char *str_join(char *buf, char *add)
 {
-    for (int fd = 0; fd <= maxfd; fd++)
+    char *newbuf;
+    int len;
+
+    if (buf == 0)
+        len = 0;
+    else
+        len = strlen(buf);
+    newbuf = malloc(sizeof(*newbuf) * (len + strlen(add) + 1));
+    if (newbuf == 0)
+        return 0;
+    newbuf[0] = 0;
+    if (buf != 0)
+        strcat(newbuf, buf);
+    free(buf);
+    strcat(newbuf, add);
+    return newbuf;
+}
+
+void broadcast_message(int sender_fd, const char *msg) 
+{
+    for (int i = 0; i <= max_fd; ++i) 
     {
-        if (FD_ISSET(fd, &write_setite_set) && fd != except) // Checks if the fd is part of the write_setite_set
-            if (send(fd, send_buffer, strlen(send_buffer), 0) == -1)
-                err(NULL);
+        if (FD_ISSET(i, &write_set) && i != sender_fd && i != server_fd)
+            send(i, msg, strlen(msg), 0);
     }
 }
 
-// Main function
-int     main(int ac, char **av)
+void handle_new_client()
 {
-    if (ac != 2) // Only port number should be passed as arg
-        err("write_setong number of arguments");
+    int client_fd = accept(server_fd, NULL, NULL); // Accept new client connection
+    if (client_fd == -1)
+        return;
 
-    struct      sockaddr_in  serveraddr; // struct holding address information of the socket
-    socklen_t   len;
+    // Assign an ID to the new client
+    clients[client_fd].id = clients_count++;
+    if (client_fd > max_fd)
+        max_fd = client_fd;
 
-    int serverfd = socket(AF_INET, SOCK_STREAM, 0); // Create a socket, Address family: IPv4, Type of socket: TCP
-    if (serverfd == -1) 
-        err(NULL);
-    maxfd = serverfd;
+    FD_SET(client_fd, &conn_set); // Add the new client socket to the set
+    char msg[128];
+    sprintf(msg, "server: client %d just arrived\n", clients[client_fd].id);
+    broadcast_message(client_fd, msg); // Notify other clients about the new client
+}
 
-    FD_ZERO(&current); // Initialize the file descriptor set
-    FD_SET(serverfd, &current); // Add the server socket to the set
-    bzero(clients, sizeof(clients)); // Clear the clients array
-    bzero(&serveraddr, sizeof(serveraddr)); // Clear the server address structure
+void disconnect_client(int client_fd)
+{
+    char msg[128];
+    sprintf(msg, "server: client %d just left\n", clients[client_fd].id);
+    broadcast_message(client_fd, msg); // Notify other clients about the disconnection
 
-    serveraddr.sin_family = AF_INET; // Set the address family to AF_INET
-    serveraddr.sin_addr.s_addr = htonl(INADDR_ANY); // Set the address to any available interface (host to network long)
-    serveraddr.sin_port = htons(atoi(av[1])); // Set the port number from the argument (host to network short)
+    FD_CLR(client_fd, &conn_set);   // Remove the client from the sets
+    FD_CLR(client_fd, &write_set);
+    close(client_fd);               // Close the client socket
+    free(clients[client_fd].buff); // Free the client's buffer
+    clients[client_fd].buff = NULL;
+}
 
-    // Bind and listen on the socket
-    if (bind(serverfd, (const struct sockaddr *)&serveraddr, sizeof(serveraddr)) == -1 || listen(serverfd, 100) == -1)
-        err(NULL);                                                              // 100 is maximum lenght for queue of pending connections
+void save_remaining_msg(int client_fd, int bytes, int start)
+{
+    char *temp = NULL;
 
-    while (1) // Main loop to handle client connections and messages
+    if (start != bytes) 
     {
-        read_set = write_setite_set = current; // Copy the current set to read_set and write_set
-        if (select(maxfd + 1, &read_set, &write_setite_set, 0, 0) == -1) // Wait for activity on the sockets
+        temp = str_join(temp, &clients[client_fd].buff[start]);
+        if (!temp)
+            err(NULL);
+    }
+    free(clients[client_fd].buff);
+    clients[client_fd].buff = temp; // Save any remaining part of the msg
+}
+
+void process_client_msg(int client_fd, int bytes, char* buffer)
+{
+    int start = 0;
+    for (int i = 0; i < bytes; ++i) 
+    {
+        if (buffer[i] == '\n') 
+        {
+            buffer[i] = '\0'; // Replace newline with null terminator
+            char *line = malloc(i - start + 32); // Allocate memory for the msg line
+            if (!line)
+                err(NULL);
+            sprintf(line, "client %d: %s\n", clients[client_fd].id, &buffer[start]);
+            broadcast_message(client_fd, line); // Send the msg line to other clients
+            free(line);
+            start = i + 1;
+        }
+    }
+    save_remaining_msg(client_fd, bytes, start); // Save any remaining part of the msg
+}
+
+void handle_client_data(int client_fd)
+{
+    char buffer[70000];
+    int bytes = recv(client_fd, buffer, sizeof(buffer) - 1, 0); // Receive data from the client
+
+    if (bytes <= 0) 
+    {
+        disconnect_client(client_fd); // Handle client disconnection if no data is received
+        return;
+    }
+
+    buffer[bytes] = '\0'; // Null-terminate the received data
+    clients[client_fd].buff = str_join(clients[client_fd].buff, buffer); // Append the new data to the client's buffer
+    if (!clients[client_fd].buff)
+        err(NULL);
+
+    process_client_msg(client_fd, strlen(clients[client_fd].buff), clients[client_fd].buff); // Process the received msg
+}
+
+void init_server(int port)
+{
+    // Create socket
+    server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (server_fd == -1)
+        err(NULL);
+
+    // Set up server address
+    servaddr.sin_family = AF_INET;
+    servaddr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    servaddr.sin_port = htons(port);
+
+    // Bind socket to the address
+    if (bind(server_fd, (const struct sockaddr*)&servaddr, sizeof(servaddr)) != 0)
+        err(NULL);
+
+    // Listen for connections
+    if (listen(server_fd, 100) != 0) // 100 is maximum lenght for queue of pending connections
+        err(NULL);
+
+    max_fd = server_fd;
+    FD_ZERO(&conn_set); // Initialize
+    FD_SET(server_fd, &conn_set); // Add the server socket to the set
+
+    for (int i = 0; i < 1024; ++i)
+        clients[i].buff = NULL; // Initialize client buffers to NULL
+}
+
+int main(int argc, char **argv) 
+{
+    if (argc != 2)
+        err("Wrong number of arguments\n");
+
+    init_server(atoi(argv[1]));
+
+    while (1) 
+    {
+        read_set = conn_set;
+        write_set = conn_set;
+        if (select(max_fd + 1, &read_set, &write_set, NULL, NULL) == -1) 
             continue;
 
-        for (int fd = 0; fd <= maxfd; fd++) // Iterate through file descriptors
+        for (int i = 0; i <= max_fd; ++i)
         {
-            if (FD_ISSET(fd, &read_set)) // Check if the file descriptor is ready for reading
+            if (FD_ISSET(i, &read_set)) 
             {
-                if (fd == serverfd) // If the server socket is ready, accept a new client connection
-                {
-                    int clientfd = accept(serverfd, (struct sockaddr *)&serveraddr, &len);
-                    if (clientfd == -1)
-                        continue;
-                    if (clientfd > maxfd)
-                        maxfd = clientfd; // Update maxfd if necessary
-                    clients[clientfd].id = gid++; // Assign a unique ID to the new client
-                    FD_SET(clientfd, &current); // Add the new client socket to the current set
-                    sprintf(send_buffer, "server: client %d just arrived\n", clients[clientfd].id);
-                    send_to_all(clientfd); // Notify all clients about the new connection
-                    break;
-                }
-                else // If a client socket is ready, receive data from the client
-                {
-                    int ret = recv(fd, recv_buffer, sizeof(recv_buffer), 0);
-                    if (ret <= 0) // If recv returns <= 0, the client has disconnected
-                    {
-                        sprintf(send_buffer, "server: client %d just left\n", clients[fd].id);
-                        send_to_all(fd); // Notify all clients about the disconnection
-                        FD_CLR(fd, &current); // Remove the client socket from the current set
-                        close(fd); // Close the client socket
-                        break;
-                    }
-                    else // Process the received data
-                    {
-                        for (int i = 0, j = strlen(clients[fd].msg); i < ret; i++, j++)
-                        {
-                            clients[fd].msg[j] = recv_buffer[i]; // Append received data to the client's message buffer
-                            if (clients[fd].msg[j] == '\n') // Check for complete messages ending with '\n'
-                            {
-                                clients[fd].msg[j] = '\0'; // Null-terminate the message
-                                sprintf(send_buffer, "client %d: %s\n", clients[fd].id, clients[fd].msg);
-                                send_to_all(fd); // Send the complete message to all clients
-                                bzero(clients[fd].msg, strlen(clients[fd].msg)); // Clear the client's message buffer
-                                j = -1; // Reset the buffer index
-                            }
-                        }
-                        break;
-                    }
-                }
+                if (i == server_fd)
+                    handle_new_client();
+                else
+                    handle_client_data(i);
             }
         }
     }
-    return (0);
+    return 0;
 }
-
